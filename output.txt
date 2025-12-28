@@ -1,0 +1,6 @@
+C:\Users\Victus\AppData\Local\Programs\Python\Python313\Lib\site-packages\perth\perth_net\__init__.py:1: UserWarning: pkg_resources is deprecated as an API. See https://setuptools.pypa.io/en/latest/pkg_resources.html. The pkg_resources package is slated for removal as early as 2025-11-30. Refrain from using this package or pin to Setuptools<81.
+  from pkg_resources import resource_filename
+Initializing Chatterbox Agent...
+Using device: cpu
+Loading model...
+An error occurred: Token is required (`token=True`), but no token found. You need to provide a token or be logged in to Hugging Face with `hf auth login` or `huggingface_hub.login`. See https://huggingface.co/settings/tokens.
