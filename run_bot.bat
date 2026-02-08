@@ -1,5 +1,7 @@
 @echo off
-cd /d %~dp0
+setlocal
+cd /d "D:\chatterbox-master"
 echo Starting Chatterbox Reader Bot (Manual)...
-venv_py310\Scripts\python reader_bot.py
-pause
+call venv_py310\Scripts\activate.bat
+python reader_bot.py
+endlocal
