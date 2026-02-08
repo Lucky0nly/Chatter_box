@@ -1,7 +1,7 @@
 # ✨ Chatterbox TTS
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
-[![Python 3.11+](https://img.shields.io/badge/Python-3.11+-blue.svg)](https://www.python.org/downloads/)
+[![Python 3.10+](https://img.shields.io/badge/Python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![PyPI](https://img.shields.io/badge/PyPI-chatterbox--tts-green.svg)](https://pypi.org/project/chatterbox-tts/)
 [![GitHub Stars](https://img.shields.io/github/stars/resemble-ai/chatterbox.svg?style=social)](https://github.com/resemble-ai/chatterbox)
 [![Discord](https://img.shields.io/badge/Discord-Join%20us-7289DA.svg)](https://discord.gg/rJq9cRJBJ6)
@@ -15,6 +15,11 @@
 ## 🌟 Overview
 
 **Chatterbox** is a family of cutting-edge, open-source TTS models designed for modern AI applications. The flagship **Chatterbox-Turbo** model delivers exceptional speech quality with minimal computational requirements—powered by a streamlined 350M parameter architecture.
+
+This fork adds **production-ready tools** for real-world use:
+- 🎙️ **Reader Bot** — Select any text, press a hotkey, hear it spoken instantly
+- 🤖 **Agent REPL** — Interactive command-line TTS with voice switching
+- ⚡ **Optimized Async Streaming** — GPU-accelerated, non-blocking audio pipeline
 
 ### Why Chatterbox?
 
@@ -38,31 +43,94 @@
 
 ---
 
-## 📦 Installation
+## 🚀 Quick Start Tools
 
-### Via pip (Recommended)
+### 📖 Reader Bot (Select & Speak)
 
-```bash
-pip install chatterbox-tts
-```
+**The fastest way to hear any text on your screen.**
 
-### From Source
+1. Run the bot:
+   ```bash
+   run_bot.bat
+   ```
 
-```bash
-conda create -yn chatterbox python=3.11
-conda activate chatterbox
-git clone https://github.com/resemble-ai/chatterbox.git
-cd chatterbox
-pip install -e .
-```
+2. Wait for: `"Reader bot is ready"` (audio confirmation)
 
-> 💡 Tested on Python 3.11 on Debian 11. Dependencies are pinned in `pyproject.toml` for consistency.
+3. **Usage:**
+   - Select any text on your screen
+   - Press `Ctrl + Alt + R` → Instant TTS playback
+   - Press `Ctrl + Alt + X` → Stop playback immediately
+   - Press `Ctrl + C` → Exit the bot
+
+**Features:**
+- ⚡ Async streaming (audio starts before full generation completes)
+- 🎯 Smart text chunking for instant response
+- 🛑 Immediate stop on hotkey
+- 🔊 Optimized precision: Transformer (FP16) + Vocoder (FP32)
 
 ---
 
-## 🎯 Quick Start
+### 🤖 Agent REPL (Interactive CLI)
 
-### Chatterbox-Turbo Example
+**A conversational TTS agent with voice switching.**
+
+```bash
+python run_agent.py
+```
+
+**Commands:**
+| Command | Action |
+|---------|--------|
+| `Type any text` | Generate and play TTS |
+| `reload_voice` | Switch to custom voice (`male_voice.wav`) |
+| `reset_voice` | Revert to default female voice |
+| `exit` | Quit the agent |
+
+**Custom Voice:**
+- Drop a `male_voice.wav` file in the project root
+- Type `reload_voice` to activate it
+- Must be 5+ seconds of clean speech
+
+---
+
+## 📦 Installation
+
+### Prerequisites
+
+- **Python 3.10** (required for PyTorch CUDA compatibility)
+- **NVIDIA GPU** with CUDA support (RTX 4050+ recommended)
+- **Windows 10/11** (for `run_bot.bat`)
+
+### Quick Setup
+
+```bash
+# Clone the repo
+git clone https://github.com/Lucky0nly/Chatter_box.git
+cd Chatter_box
+
+# Create virtual environment
+python -m venv venv_py310
+venv_py310\Scripts\activate
+
+# Install dependencies
+pip install -e .
+pip install keyboard pyperclip sounddevice
+
+# Install PyTorch with CUDA
+pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu121
+```
+
+### Alternative: Automated Setup
+
+```bash
+setup_and_run.bat
+```
+
+---
+
+## 🎯 Code Examples
+
+### Chatterbox-Turbo (Programmatic)
 
 ```python
 import torchaudio as ta
@@ -114,16 +182,50 @@ chatterbox/
 │   ├── tts_turbo.py          # Turbo model implementation
 │   ├── tts.py                # Standard TTS model
 │   ├── mtl_tts.py            # Multilingual model
-│   └── utils.py              # Utility functions
-├── example_tts.py            # Basic usage examples
-├── example_tts_turbo.py      # Turbo model examples
-├── example_vc.py             # Voice conversion examples
+│   └── models/
+│       ├── t3/               # Transformer backbone
+│       └── s3gen/            # Vocoder
+├── reader_bot.py             # 🆕 Async streaming TTS bot
+├── run_bot.bat               # 🆕 Windows launcher for Reader Bot
+├── run_agent.py              # 🆕 Interactive REPL agent
+├── setup_and_run.bat         # 🆕 Automated setup script
 ├── gradio_tts_app.py         # Gradio web UI
+├── gradio_tts_turbo_app.py   # Turbo Gradio app
 ├── multilingual_app.py       # Multilingual demo app
 ├── pyproject.toml            # Dependencies
 ├── LICENSE                   # MIT License
 └── README.md                 # This file
 ```
+
+---
+
+## ⚙️ Performance Optimization
+
+### GPU Precision Settings
+
+The Reader Bot uses optimized mixed-precision for best speed/quality balance:
+
+| Component | Precision | Reason |
+|-----------|-----------|--------|
+| Transformer (T3) | FP16 | 2x faster inference |
+| Vocoder (S3Gen) | FP32 | Stable audio quality |
+
+This is configured automatically in `reader_bot.py`:
+
+```python
+model.t3 = model.t3.to("cuda").half()       # Speed
+model.s3gen = model.s3gen.to("cuda").float() # Quality
+```
+
+### Latency Expectations
+
+| Text Length | Generation Time | Notes |
+|-------------|-----------------|-------|
+| ~50 chars | ~1-2s | Single chunk |
+| ~200 chars | ~4-6s | Multiple chunks, streaming |
+| ~500 chars | ~8-12s | Long form, fully streamed |
+
+*Tested on RTX 4050 6GB*
 
 ---
 
@@ -176,7 +278,9 @@ print(f"Watermark detected: {watermark}")  # 0.0 (no) or 1.0 (yes)
 - [x] Multilingual support (23+ languages)
 - [x] Paralinguistic tag support
 - [x] Zero-shot voice cloning
-- [ ] Real-time streaming API
+- [x] **Real-time streaming (Reader Bot)**
+- [x] **Async pipeline optimization**
+- [x] **Hotkey controls**
 - [ ] Fine-tuning toolkit
 - [ ] Multi-speaker models
 - [ ] Emotion control features
