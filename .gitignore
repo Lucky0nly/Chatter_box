@@ -46,3 +46,8 @@ checkpoints/
 
 # Ignore generated sample .wav files
 **/*.wav
+
+# Custom
+venv_py310/
+*.log
+
