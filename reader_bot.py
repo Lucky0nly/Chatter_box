@@ -34,10 +34,15 @@ playback_executor = ThreadPoolExecutor(max_workers=1)
 current_stream = None # Track the active stream for aborting
 stop_signal = asyncio.Event()
 
-# IPC Configuration
+# IPC Configuration (Socket)
 IPC_HOST = "127.0.0.1"
 IPC_PORT = 5678
 ipc_trigger_callback = None  # Will be set after on_trigger is defined
+
+# HTTP Server Configuration (Browser Extension)
+HTTP_PORT = 5679
+http_text_callback = None  # Will be set to handle text directly
+main_loop = None  # Reference to asyncio loop for thread-safe scheduling
 
 def split_into_chunks(text, max_chars=120):
     """Splits text into micro-chunks for instant start."""
@@ -242,6 +247,48 @@ def start_ipc_server():
         logging.error(f"[IPC] Could not start server: {e}")
 # ====================================================
 
+# ==================== HTTP SERVER (Browser Extension) ====================
+def start_http_server():
+    """Start Flask HTTP server for browser extension."""
+    from flask import Flask, request, jsonify
+    from flask_cors import CORS
+    
+    app = Flask(__name__)
+    CORS(app)  # Allow browser to connect
+    
+    # Disable Flask's default logging to reduce noise
+    import logging as flask_logging
+    flask_logging.getLogger('werkzeug').setLevel(flask_logging.ERROR)
+    
+    @app.route("/read", methods=["POST"])
+    def read_text():
+        global http_text_callback, main_loop
+        try:
+            data = request.json
+            text = data.get("text", "")
+            
+            if text and text.strip() and http_text_callback and main_loop:
+                logging.info(f"[HTTP] Browser request: {len(text)} chars")
+                # Schedule TTS on the main asyncio loop
+                asyncio.run_coroutine_threadsafe(
+                    http_text_callback(text),
+                    main_loop
+                )
+                return jsonify({"status": "ok", "message": "Reading..."})
+            else:
+                return jsonify({"status": "error", "message": "No text or bot not ready"})
+        except Exception as e:
+            logging.error(f"[HTTP ERROR] {e}")
+            return jsonify({"status": "error", "message": str(e)})
+    
+    @app.route("/health", methods=["GET"])
+    def health():
+        return jsonify({"status": "running"})
+    
+    logging.info(f"[HTTP] Starting server on {IPC_HOST}:{HTTP_PORT}")
+    app.run(host=IPC_HOST, port=HTTP_PORT, threaded=True, use_reloader=False)
+# =========================================================================
+
 def main():
     logging.info("Initializing Async Reader Bot...")
     
@@ -342,10 +389,23 @@ def main():
         keyboard.add_hotkey('ctrl+alt+r', on_trigger)
         keyboard.add_hotkey('ctrl+alt+x', on_stop_hotkey)
 
-        # Start IPC Server for right-click menu integration
+        # Start IPC Server for socket-based triggers
         global ipc_trigger_callback
         ipc_trigger_callback = on_trigger
         threading.Thread(target=start_ipc_server, daemon=True).start()
+
+        # Start HTTP Server for browser extension
+        global http_text_callback, main_loop
+        main_loop = loop
+        
+        async def handle_browser_text(text):
+            """Handle text received from browser extension."""
+            stop_active_playback()
+            logging.info(f"[Browser] Processing {len(text)} chars...")
+            await stream_tts(model, text, device)
+        
+        http_text_callback = handle_browser_text
+        threading.Thread(target=start_http_server, daemon=True).start()
 
         # Run asyncio loop forever
         try:
