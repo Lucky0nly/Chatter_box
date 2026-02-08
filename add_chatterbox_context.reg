@@ -1,0 +1,8 @@
+Windows Registry Editor Version 5.00
+
+[HKEY_CLASSES_ROOT\*\shell\Read with Chatterbox]
+@="Read with Chatterbox"
+"Icon"="D:\\chatterbox-master\\venv_py310\\python.exe"
+
+[HKEY_CLASSES_ROOT\*\shell\Read with Chatterbox\command]
+@="\"D:\\chatterbox-master\\venv_py310\\Scripts\\python.exe\" \"D:\\chatterbox-master\\read_trigger.py\""

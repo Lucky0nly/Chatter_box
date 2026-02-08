@@ -9,6 +9,9 @@ import numpy as np
 import logging
 import asyncio
 import re
+import socket
+import threading
+import json
 from concurrent.futures import ThreadPoolExecutor
 from huggingface_hub import snapshot_download
 from chatterbox.tts_turbo import ChatterboxTurboTTS
@@ -30,6 +33,11 @@ generation_executor = ThreadPoolExecutor(max_workers=1)
 playback_executor = ThreadPoolExecutor(max_workers=1)
 current_stream = None # Track the active stream for aborting
 stop_signal = asyncio.Event()
+
+# IPC Configuration
+IPC_HOST = "127.0.0.1"
+IPC_PORT = 5678
+ipc_trigger_callback = None  # Will be set after on_trigger is defined
 
 def split_into_chunks(text, max_chars=120):
     """Splits text into micro-chunks for instant start."""
@@ -190,6 +198,50 @@ def stop_active_playback():
         except:
             pass
 
+# ==================== IPC SERVER ====================
+def handle_ipc_connection(conn):
+    """Handle incoming IPC connection."""
+    global ipc_trigger_callback
+    try:
+        data = conn.recv(1024).decode("utf-8")
+        if not data:
+            return
+
+        message = json.loads(data)
+
+        if message.get("action") == "read":
+            logging.info("[IPC] READ command received.")
+            if ipc_trigger_callback:
+                ipc_trigger_callback()
+            else:
+                logging.warning("[IPC] Trigger callback not set yet.")
+
+    except Exception as e:
+        logging.error(f"[IPC ERROR] {e}")
+    finally:
+        conn.close()
+
+
+def start_ipc_server():
+    """Start IPC server in background thread."""
+    server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    try:
+        server.bind((IPC_HOST, IPC_PORT))
+        server.listen(5)
+        logging.info(f"[IPC] Listening on {IPC_HOST}:{IPC_PORT}")
+
+        while True:
+            conn, addr = server.accept()
+            threading.Thread(
+                target=handle_ipc_connection,
+                args=(conn,),
+                daemon=True
+            ).start()
+    except OSError as e:
+        logging.error(f"[IPC] Could not start server: {e}")
+# ====================================================
+
 def main():
     logging.info("Initializing Async Reader Bot...")
     
@@ -289,6 +341,11 @@ def main():
 
         keyboard.add_hotkey('ctrl+alt+r', on_trigger)
         keyboard.add_hotkey('ctrl+alt+x', on_stop_hotkey)
+
+        # Start IPC Server for right-click menu integration
+        global ipc_trigger_callback
+        ipc_trigger_callback = on_trigger
+        threading.Thread(target=start_ipc_server, daemon=True).start()
 
         # Run asyncio loop forever
         try:
