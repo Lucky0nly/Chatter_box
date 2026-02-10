@@ -284,6 +284,12 @@ class ChatterboxTurboTTS:
             top_p=top_p,
             repetition_penalty=repetition_penalty,
         )
+        
+        # Debug: Device diagnostics
+        print("T3 param device:", next(self.t3.parameters()).device)
+        print("Text tokens device:", text_tokens.device)
+        print("Speech tokens device:", speech_tokens.device)
+        print("CUDA available:", torch.cuda.is_available())
 
         # Remove OOV tokens and add silence to end
         speech_tokens = speech_tokens[speech_tokens < 6561]

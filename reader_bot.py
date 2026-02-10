@@ -30,9 +30,13 @@ logging.getLogger('').addHandler(console)
 
 # Global State
 generation_executor = ThreadPoolExecutor(max_workers=1)
-playback_executor = ThreadPoolExecutor(max_workers=1)
 current_stream = None # Track the active stream for aborting
 stop_signal = asyncio.Event()
+
+# Audio Buffer for Callback-Based Streaming
+audio_buffer = []
+buffer_lock = threading.Lock()
+audio_stream_active = False
 
 # IPC Configuration (Socket)
 IPC_HOST = "127.0.0.1"
@@ -43,6 +47,31 @@ ipc_trigger_callback = None  # Will be set after on_trigger is defined
 HTTP_PORT = 5679
 http_text_callback = None  # Will be set to handle text directly
 main_loop = None  # Reference to asyncio loop for thread-safe scheduling
+
+def audio_callback(outdata, frames, time_info, status):
+    """Callback for non-blocking audio streaming."""
+    global audio_buffer
+    
+    with buffer_lock:
+        if len(audio_buffer) == 0:
+            # No audio ready, output silence
+            outdata[:] = np.zeros((frames, 1), dtype=np.float32)
+            return
+        
+        chunk = audio_buffer.pop(0)
+    
+    # Handle chunk size mismatch
+    if len(chunk) < frames:
+        padded = np.zeros((frames,), dtype=np.float32)
+        padded[:len(chunk)] = chunk
+        outdata[:] = padded.reshape(-1, 1)
+    else:
+        outdata[:] = chunk[:frames].reshape(-1, 1)
+        # If chunk was larger, put remainder back
+        if len(chunk) > frames:
+            with buffer_lock:
+                audio_buffer.insert(0, chunk[frames:])
+
 
 def split_into_chunks(text, max_chars=120):
     """Splits text into micro-chunks for instant start."""
@@ -110,8 +139,12 @@ async def generate_chunks(model, text, queue, device):
     loop = asyncio.get_running_loop()
     stop_signal.clear() # Reset stop signal
     
-    chunks = split_into_chunks(text, max_chars=120)
+    chunks = split_into_chunks(text)
+    print("Chunk sizes:", [len(c) for c in chunks])
     logging.info(f"Text split into {len(chunks)} chunks: {[len(c) for c in chunks]}")
+    
+    if chunks:
+        print("Generating first chunk of size:", len(chunks[0]))
 
     for i, chunk in enumerate(chunks):
         if stop_signal.is_set():
@@ -140,19 +173,25 @@ async def generate_chunks(model, text, queue, device):
     await queue.put(None) # Sentinel
 
 async def play_audio(queue, samplerate):
-    """Async Consumer: Plays chunks from queue using OutputStream."""
-    global current_stream
-    loop = asyncio.get_running_loop()
+    """Async Consumer: Callback-based non-blocking audio streaming."""
+    global current_stream, audio_buffer, audio_stream_active
     
-    # Create OutputStream
+    # Clear any leftover audio from previous session
+    with buffer_lock:
+        audio_buffer.clear()
+    
+    # Create callback-based OutputStream
     stream = sd.OutputStream(
         samplerate=samplerate,
         channels=1,
-        dtype='float32'
+        dtype='float32',
+        callback=audio_callback,
+        blocksize=1024  # Small block for lower latency
     )
     current_stream = stream
+    audio_stream_active = True
     stream.start()
-    logging.info("Audio stream started.")
+    logging.info("🔊 Callback audio stream started.")
 
     try:
         while True:
@@ -161,22 +200,32 @@ async def play_audio(queue, samplerate):
                 
             wav = await queue.get()
             if wav is None:
+                # Wait for buffer to drain before ending
+                while True:
+                    with buffer_lock:
+                        if len(audio_buffer) == 0:
+                            break
+                    await asyncio.sleep(0.05)
                 break
             
-            # Write to stream (blocking call, so run in playback_executor)
+            # Push to buffer (non-blocking)
             if not stop_signal.is_set():
-                await loop.run_in_executor(playback_executor, lambda: stream.write(wav))
+                with buffer_lock:
+                    audio_buffer.append(wav)
+                logging.debug(f"Buffer size: {len(audio_buffer)} chunks")
             
     except Exception as e:
         logging.error(f"Playback error: {e}")
     finally:
-        # Use abort() for immediate silence if stopped, otherwise stop() triggers a polite end
+        audio_stream_active = False
         if stop_signal.is_set():
             stream.abort()
         else:
             stream.stop()
         stream.close()
         current_stream = None
+        with buffer_lock:
+            audio_buffer.clear()
         logging.info("Audio stream finished.")
 
 async def stream_tts(model, text, device):
